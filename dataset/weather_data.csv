@@ -1,0 +1,7 @@
+city,date,temperature,feels_like,humidity,pressure,wind_speed,weather,latitude,longitude
+Chennai,2026-08-24 18:59:55,30.43,37.43,79,1006,3.09,overcast clouds,13.0878,80.2785
+Bengaluru,2026-08-24 18:59:56,22.72,23.32,87,1012,4.63,light rain,12.9762,77.6033
+Mumbai,2026-08-24 18:59:57,28.99,34.5,79,1008,6.17,light rain,19.0144,72.8479
+Delhi,2026-08-24 18:59:57,27.96,34.96,100,1002,2.06,overcast clouds,28.6667,77.2167
+Hyderabad,2026-08-24 18:59:58,25.23,26.11,88,1009,4.12,moderate rain,17.3753,78.4744
+Kolkata,2026-08-24 18:59:58,28.97,35.97,89,1001,3.09,broken clouds,22.5697,88.3697
