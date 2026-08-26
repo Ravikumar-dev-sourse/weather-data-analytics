@@ -1,4 +1,4 @@
-from flask import Flask, jsonify,request
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient
 from dotenv import load_dotenv
@@ -12,139 +12,323 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-client = MongoClient(os.getenv("MONGODB_URI"))
+# ---------------- MongoDB ----------------
+
+MONGODB_URI = os.getenv("MONGODB_URI")
+
+if not MONGODB_URI:
+    print("ERROR: MONGODB_URI is not set")
+
+client = MongoClient(
+    MONGODB_URI,
+    serverSelectionTimeoutMS=10000
+)
+
 db = client["weather_database"]
 collection = db["weather"]
+
+# Test MongoDB connection
+try:
+    client.admin.command("ping")
+    print("MongoDB connected successfully")
+except Exception as e:
+    print("MongoDB connection error:", e)
+
+
+# ---------------- ML Model ----------------
 
 model = joblib.load("weather_model.pkl")
 
 
+# ---------------- Home ----------------
+
 @app.route("/")
 def home():
-    return jsonify({"message": "Weather API is running"})
+    return jsonify({
+        "message": "Weather API is running"
+    })
 
+
+# ---------------- Weather ----------------
 
 @app.route("/api/weather")
 def weather():
-    data = list(collection.find({}, {"_id": 0}).limit(100))
-    return jsonify(data)
 
+    try:
+        data = list(
+            collection.find(
+                {},
+                {"_id": 0}
+            ).limit(100)
+        )
+
+        return jsonify(data)
+
+    except Exception as e:
+        print("Weather error:", e)
+
+        return jsonify({
+            "error": "MongoDB weather data error",
+            "details": str(e)
+        }), 500
+
+
+# ---------------- Cities ----------------
 
 @app.route("/api/cities")
 def cities():
-    cities = collection.distinct("city")
-    return jsonify(cities)
 
+    try:
+        cities = collection.distinct("city")
+
+        return jsonify(cities)
+
+    except Exception as e:
+        print("Cities error:", e)
+
+        return jsonify({
+            "error": "Unable to get cities",
+            "details": str(e)
+        }), 500
+
+
+# ---------------- City Weather ----------------
 
 @app.route("/api/weather/<city>")
 def city_weather(city):
 
-    start = request.args.get("start")
-    end = request.args.get("end")
+    try:
 
-    query = {"city": city}
+        start = request.args.get("start")
+        end = request.args.get("end")
 
-    if start and end:
-        query["date"] = {
-            "$gte": start,
-            "$lte": end
+        query = {
+            "city": city
         }
 
-    data = list(
-        collection.find(
-            query,
-            {"_id": 0}
-        ).sort("date", 1)
-    )
+        if start and end:
+            query["date"] = {
+                "$gte": start,
+                "$lte": end
+            }
 
-    return jsonify(data)
+        data = list(
+            collection.find(
+                query,
+                {"_id": 0}
+            ).sort("date", 1)
+        )
+
+        return jsonify(data)
+
+    except Exception as e:
+
+        print("City weather error:", e)
+
+        return jsonify({
+            "error": "Unable to get city weather",
+            "details": str(e)
+        }), 500
+
+
+# ---------------- Summary ----------------
+
 @app.route("/api/summary")
 def summary():
 
-    pipeline = [
-        {
-            "$group": {
-                "_id": "$city",
-                "avg_temperature": {"$avg": "$temperature"},
-                "avg_humidity": {"$avg": "$humidity"},
-                "avg_wind": {"$avg": "$wind_speed"},
-                "total_rain": {"$sum": "$precipitation"}
+    try:
+
+        pipeline = [
+            {
+                "$group": {
+                    "_id": "$city",
+                    "avg_temperature": {
+                        "$avg": "$temperature"
+                    },
+                    "avg_humidity": {
+                        "$avg": "$humidity"
+                    },
+                    "avg_wind": {
+                        "$avg": "$wind_speed"
+                    },
+                    "total_rain": {
+                        "$sum": "$precipitation"
+                    }
+                }
             }
-        }
-    ]
+        ]
 
-    data = list(collection.aggregate(pipeline))
+        data = list(
+            collection.aggregate(pipeline)
+        )
 
-    result = []
+        result = []
 
-    for item in data:
-        result.append({
-            "city": item["_id"],
-            "avg_temperature": round(item["avg_temperature"], 2),
-            "avg_humidity": round(item["avg_humidity"], 2),
-            "avg_wind": round(item["avg_wind"], 2),
-            "total_rain": round(item["total_rain"], 2)
-        })
+        for item in data:
 
-    return jsonify(result)
+            result.append({
+                "city": item["_id"],
+                "avg_temperature": round(
+                    item.get("avg_temperature", 0), 2
+                ),
+                "avg_humidity": round(
+                    item.get("avg_humidity", 0), 2
+                ),
+                "avg_wind": round(
+                    item.get("avg_wind", 0), 2
+                ),
+                "total_rain": round(
+                    item.get("total_rain", 0), 2
+                )
+            })
+
+        return jsonify(result)
+
+    except Exception as e:
+
+        print("Summary error:", e)
+
+        return jsonify({
+            "error": "Unable to generate summary",
+            "details": str(e)
+        }), 500
+
+
+# ---------------- Prediction ----------------
 
 @app.route("/api/predict", methods=["POST"])
 def predict():
 
-    data = request.get_json()
+    try:
 
-    humidity = float(data["humidity"])
-    pressure = float(data["pressure"])
-    precipitation = float(data["precipitation"])
-    wind_speed = float(data["wind_speed"])
+        data = request.get_json()
 
-    prediction = model.predict([[
-        humidity,
-        pressure,
-        precipitation,
-        wind_speed
-    ]])
+        humidity = float(data["humidity"])
+        pressure = float(data["pressure"])
+        precipitation = float(data["precipitation"])
+        wind_speed = float(data["wind_speed"])
 
-    return jsonify({
-        "predicted_temperature": round(
-            float(prediction[0]), 2
-        )
-    })
+        prediction = model.predict([
+            [
+                humidity,
+                pressure,
+                precipitation,
+                wind_speed
+            ]
+        ])
+
+        return jsonify({
+            "predicted_temperature": round(
+                float(prediction[0]), 2
+            )
+        })
+
+    except Exception as e:
+
+        print("Prediction error:", e)
+
+        return jsonify({
+            "error": "Prediction failed",
+            "details": str(e)
+        }), 500
+
+
+# ---------------- Live Weather ----------------
+
 @app.route("/api/live-weather/<city>")
 def live_weather(city):
 
-    api_key = os.getenv("OPENWEATHER_API_KEY")
+    try:
 
-    url = "https://api.openweathermap.org/data/2.5/weather"
+        api_key = os.getenv("OPENWEATHER_API_KEY")
 
-    params = {
-        "q": city,
-        "appid": api_key,
-        "units": "metric"
-    }
+        if not api_key:
+            return jsonify({
+                "error": "OPENWEATHER_API_KEY is not configured"
+            }), 500
 
-    response = requests.get(url, params=params)
+        url = "https://api.openweathermap.org/data/2.5/weather"
 
-    if response.status_code != 200:
+        params = {
+            "q": city,
+            "appid": api_key,
+            "units": "metric"
+        }
+
+        response = requests.get(
+            url,
+            params=params,
+            timeout=10
+        )
+
+        if response.status_code != 200:
+
+            return jsonify({
+                "error": "Unable to get live weather"
+            }), response.status_code
+
+        data = response.json()
+
+        rain = data.get(
+            "rain",
+            {}
+        ).get(
+            "1h",
+            0
+        )
+
         return jsonify({
-            "error": "Unable to get live weather"
-        }), response.status_code
 
-    data = response.json()
+            "city": city,
 
-    rain = data.get("rain", {}).get("1h", 0)
+            "temperature": data["main"]["temp"],
+
+            "humidity": data["main"]["humidity"],
+
+            "pressure": data["main"]["pressure"],
+
+            "wind_speed": round(
+                data["wind"]["speed"] * 3.6,
+                2
+            ),
+
+            "rain": rain,
+
+            "weather": data["weather"][0]["description"],
+
+            "updated_at": datetime.now().strftime(
+                "%d-%m-%Y %H:%M:%S"
+            )
+        })
+
+    except Exception as e:
+
+        print("Live weather error:", e)
+
+        return jsonify({
+            "error": "Live weather failed",
+            "details": str(e)
+        }), 500
+
+
+# ---------------- Error Handler ----------------
+
+@app.errorhandler(Exception)
+def handle_error(e):
+
+    print("SERVER ERROR:", e)
 
     return jsonify({
-    "city": city,
-    "temperature": data["main"]["temp"],
-    "humidity": data["main"]["humidity"],
-    "pressure": data["main"]["pressure"],
-    "wind_speed": round(data["wind"]["speed"] * 3.6, 2),
-    "rain": rain,
-    "weather": data["weather"][0]["description"],
-    "updated_at": datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-})
+        "error": "Internal server error",
+        "details": str(e)
+    }), 500
 
+
+# ---------------- Run ----------------
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+        debug=True
+    )
